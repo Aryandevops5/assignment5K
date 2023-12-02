@@ -19,18 +19,9 @@ spec:
           image: nyuappsec/assign3:v0
           ports:
             - containerPort: 8000
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              value: thisisatestthing. 
-
-            - name: MYSQL_DB
-              value: GiftcardSiteDB
-
-            - name: MYSQL_HOST
-              value: mysql-service
-
-            - name: ALLOWED_HOSTS
-              value: "*,"
+          envFrom:
+            - secretRef:
+                name: django-deploy-secret
 
           volumeMounts:
             - name: mysql-volume-mount

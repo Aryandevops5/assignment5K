@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'django-app'
+    static_configs:
+      - targets: ['django-app-host:django-app-port']
+
+  # Add additional scrape configurations for other services or targets if needed.
+
+remote_write:
+  - url: 'PROMETHEUS_URL'
+    basic_auth:
+      username: 'USERNAME'
+      password: 'PROMETHEUS_PASSWORD'

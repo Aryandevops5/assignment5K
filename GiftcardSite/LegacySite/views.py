@@ -25,7 +25,9 @@ graphs['g_counter'] = Counter('python_request_g_posts', 'The total number'\
   + ' of card gift posts.')
 graphs['u_counter'] = Counter('python_request_u_posts', 'The total number'\
   + ' of card use posts.')
-
+# new Prometheus counter for tracking intentional 404 messages
+graphs['database_error_return_404'] = Counter('database_error_return_404', 'The total number'\
+    + 'of intentional 404 messages due to database errors.')
 # Create your views here.
 # Landing page. Nav bar, most recently bought cards, etc.
 def index(request): 
@@ -110,28 +112,38 @@ def buy_card_view(request, prod_num=0):
         context['description'] = prod.description
         return render(request, "item-single.html", context)
     elif request.method == 'POST':
-        graphs['b_counter'].inc()
-        if prod_num == 0:
-            prod_num = 1
-        num_cards = len(Card.objects.filter(user=request.user))
-        # Generate a card here, based on amount sent. Need binary for this.
-        card_file_path = f"/tmp/addedcard_{request.user.id}_{num_cards + 1}.gftcrd'"
-        card_file_name = "newcard.gftcrd"
-        # Use binary to write card here.
-        # Create card record with data.
-        # For now, until we get binary, write random data.
-        prod = Product.objects.get(product_id=prod_num)
-        amount = request.POST.get('amount', None)
-        if amount is None or amount == '':
-            amount = prod.recommended_price
-        extras.write_card_data(card_file_path, prod, amount, request.user)
-        card_file = open(card_file_path, 'rb')
-        card = Card(data=card_file.read(), product=prod, amount=amount, fp=card_file_path, user=request.user)
-        card.save()
-        card_file.seek(0)
-        response = HttpResponse(card_file, content_type="application/octet-stream")
-        response['Content-Disposition'] = f"attachment; filename={card_file_name}"
-        return response
+        try:
+            graphs['b_counter'].inc()
+            if prod_num == 0:
+                prod_num = 1
+            num_cards = len(Card.objects.filter(user=request.user))
+            # Generate a card here, based on amount sent. Need binary for this.
+            card_file_path = f"/tmp/addedcard_{request.user.id}_{num_cards + 1}.gftcrd'"
+            card_file_name = "newcard.gftcrd"
+            # Use binary to write card here.
+            # Create card record with data.
+            # For now, until we get binary, write random data.
+            prod = Product.objects.get(product_id=prod_num)
+            amount = request.POST.get('amount', None)
+            if amount is None or amount == '':
+                amount = prod.recommended_price
+            extras.write_card_data(card_file_path, prod, amount, request.user)
+            card_file = open(card_file_path, 'rb')
+            card = Card(data=card_file.read(), product=prod, amount=amount, fp=card_file_path, user=request.user)
+            card.save()
+            card_file.seek(0)
+            response = HttpResponse(card_file, content_type="application/octet-stream")
+            response['Content-Disposition'] = f"attachment; filename={card_file_name}"
+            return response
+        except Exception as e:
+        # Log the database error or handle it as needed
+            print(f"Database error: {e}")
+
+            # Increment the Prometheus counter for intentional 404 messages
+            graphs['database_error_return_404'].inc()
+
+            # Render a custom error page or redirect to an error page
+            return render(request, "error_404_due_to_db.html", status=404)
         #return render(request, "item-single.html", {})
     else:
         return redirect("/buy/1")
@@ -183,6 +195,8 @@ def gift_card_view(request, prod_num=0):
         card.save()
         card_file.close()
         return render(request, f"gift.html", context)
+
+
 
 def use_card_view(request):
     context = {'card_found':None}
@@ -254,6 +268,12 @@ def use_card_view(request):
 
 def metrics_view(request):
     res = []
+    allowed_counters = ['python_request_r_posts', 'python_request_l_posts',
+                        'python_request_b_posts', 'python_request_g_posts',
+                        'python_request_u_posts']
+
     for key, value in graphs.items():
-        res.append(prometheus_client.generate_latest(value))
+        if key in allowed_counters and isinstance(value, Counter):
+            res.append(prometheus_client.generate_latest(value))
+
     return HttpResponse(res, content_type="text/plain")
